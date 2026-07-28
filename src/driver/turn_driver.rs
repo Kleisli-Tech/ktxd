@@ -8,7 +8,7 @@ use crate::responses::{
     ResponseEvent, ResponseEventSink, base_response, completed_event, completed_response_object,
     created_event, failed_event, with_sequence_number,
 };
-use crate::session::{MemoryStore, TurnRecordStore};
+use crate::session::MemoryStore;
 use crate::stream::{StreamTerminal, translate_non_streaming_response, translate_stream_chunks};
 use crate::substrate::{NodeSink, SeedResolver};
 use crate::translator::{NormalizedTurnInput, compile_chat_request};
@@ -536,8 +536,9 @@ impl TurnDriver {
             deterministic_fingerprint,
         };
         let response = self.non_streaming_response(model, &record);
-        self.store.put_response_json(response_id, response).await?;
-        self.store.put(record.clone()).await?;
+        self.store
+            .commit_terminal(response_id, response, record.clone())
+            .await?;
         Ok(record)
     }
 
