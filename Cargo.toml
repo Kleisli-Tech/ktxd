@@ -7,7 +7,10 @@ authors = ["Kleisli Technologies FZ-LLC"]
 description = "A local Responses API compatibility proxy for Codex CLI and Chat Completions backends."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["codex", "responses-api", "chat-completions", "proxy", "azure"]
+repository = "https://github.com/Kleisli-Tech/ktxd"
+homepage = "https://github.com/Kleisli-Tech/ktxd"
+documentation = "https://docs.rs/ktxd"
+keywords = ["codex", "responses-api", "chat-completions", "proxy"]
 categories = ["api-bindings", "network-programming", "web-programming"]
 
 [dependencies]
