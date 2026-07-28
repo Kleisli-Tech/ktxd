@@ -1,0 +1,42 @@
+# Rust build output
+/target/
+
+# Local configuration and secrets
+/config.toml
+/config.*.toml
+!/config.example.toml
+.env
+.env.*
+!.env.example
+
+# Logs, traces, and local runtime artifacts
+*.log
+*.trace
+*.profraw
+*.profdata
+/tmp/
+
+# Editor and IDE state
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local test coverage artifacts
+/coverage/
+/tarpaulin-report.html
+
+# Backup and patch leftovers
+*.orig
+*.rej
+
+# Agents n stuff
+.codex/
+.agents/
+reference/
+AGENTS.md

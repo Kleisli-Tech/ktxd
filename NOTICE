@@ -1,0 +1,17 @@
+Copyright (c) 2026 Kleisli Technologies FZ-LLC
+
+Third-party attribution
+
+The file `examples/codex/model-catalogs/ktxd.json` contains material adapted
+from the OpenAI Codex CLI project's model-catalog and instruction-template
+material.
+
+Upstream project: https://github.com/openai/codex
+License: Apache License 2.0
+
+The catalog has been modified for ktxd and DeepSeek-V4-Pro, including its
+model metadata, compatibility settings, and instruction text. The adapted
+material remains subject to the applicable Apache License 2.0 terms and
+attribution requirements.
+
+ktxd is not affiliated with or endorsed by OpenAI.

@@ -1,0 +1,28 @@
+[server]
+bind = "127.0.0.1:3000"
+
+[models.DeepSeek-V4-Pro]
+# Public model slug accepted from Codex requests and exposed by /v1/models.
+public_model = "DeepSeek-V4-Pro"
+upstream_family = "chat_completions"
+
+# Azure AI Foundry deployment/model binding. Keep these separate from the public
+# slug because many Azure endpoints bind deployment in the URL while others also
+# accept or require a model/deployment identifier in the request JSON body.
+upstream_deployment = "DeepSeek-V4-Pro"
+upstream_model = "DeepSeek-V4-Pro"
+chat_completions_url = "https://YOUR-RESOURCE.YOUR-REGION.services.ai.azure.com/openai/v1/chat/completions"
+
+# Secret is read from the environment at request time and is never logged.
+auth_header = "api-key"
+auth_env_var = "AZURE_AI_FOUNDRY_API_KEY"
+
+# Azure compatibility toggles.
+send_model_in_body = true
+include_stream_usage = true
+retry_without_stream_options_on_4xx = true
+instruction_role = "system"
+
+display_name = "DeepSeek V4 Pro"
+description = "DeepSeek-V4-Pro via Azure AI Foundry Chat Completions"
+context_window = 1000000
