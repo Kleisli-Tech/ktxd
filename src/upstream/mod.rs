@@ -193,11 +193,11 @@ async fn validate_response(response: reqwest::Response) -> Result<reqwest::Respo
 
 async fn parse_sse_response(response: reqwest::Response) -> Result<Vec<ChatCompletionResponse>> {
     let mut chunks = Vec::new();
-    let mut buffer = String::new();
+    let mut buffer = Vec::new();
     let mut byte_stream = response.bytes_stream();
     while let Some(next_chunk) = byte_stream.next().await {
         let bytes = next_chunk.map_err(|error| ProxyError::Upstream(error.to_string()))?;
-        buffer.push_str(&String::from_utf8_lossy(&bytes));
+        buffer.extend_from_slice(&bytes);
         drain_sse_buffer(&mut buffer, &mut chunks, false)?;
     }
     drain_sse_buffer(&mut buffer, &mut chunks, true)?;
@@ -205,37 +205,57 @@ async fn parse_sse_response(response: reqwest::Response) -> Result<Vec<ChatCompl
 }
 
 fn drain_sse_buffer(
-    buffer: &mut String,
+    buffer: &mut Vec<u8>,
     chunks: &mut Vec<ChatCompletionResponse>,
     flush_remainder: bool,
 ) -> Result<()> {
-    while let Some(frame_end) = buffer.find("\n\n") {
-        let frame = buffer[..frame_end].to_string();
-        *buffer = buffer[frame_end + 2..].to_string();
+    while let Some((frame_end, delimiter_length)) = find_sse_frame_end(buffer) {
+        let frame = String::from_utf8(buffer[..frame_end].to_vec())
+            .map_err(|error| ProxyError::MalformedStream(error.to_string()))?;
+        buffer.drain(..frame_end + delimiter_length);
         parse_sse_frame(&frame, chunks)?;
     }
     if flush_remainder {
         let frame = std::mem::take(buffer);
-        if !frame.trim().is_empty() {
+        if !frame.iter().all(u8::is_ascii_whitespace) {
+            let frame = String::from_utf8(frame)
+                .map_err(|error| ProxyError::MalformedStream(error.to_string()))?;
             parse_sse_frame(&frame, chunks)?;
         }
     }
     Ok(())
 }
 
+fn find_sse_frame_end(buffer: &[u8]) -> Option<(usize, usize)> {
+    (0..buffer.len()).find_map(|index| {
+        if buffer[index..].starts_with(b"\r\n\r\n") {
+            Some((index, 4))
+        } else if buffer[index..].starts_with(b"\n\n") {
+            Some((index, 2))
+        } else {
+            None
+        }
+    })
+}
+
 fn parse_sse_frame(frame: &str, chunks: &mut Vec<ChatCompletionResponse>) -> Result<()> {
+    let mut data_lines = Vec::new();
     for line in frame.lines() {
         let Some(data) = line.strip_prefix("data:") else {
             continue;
         };
-        let data = data.trim();
-        if data == "[DONE]" {
-            continue;
-        }
-        let chunk = serde_json::from_str::<ChatCompletionResponse>(data)
-            .map_err(|error| ProxyError::MalformedStream(error.to_string()))?;
-        chunks.push(chunk);
+        data_lines.push(data.strip_prefix(' ').unwrap_or(data));
     }
+    if data_lines.is_empty() {
+        return Ok(());
+    }
+    let data = data_lines.join("\n");
+    if data.trim() == "[DONE]" {
+        return Ok(());
+    }
+    let chunk = serde_json::from_str::<ChatCompletionResponse>(&data)
+        .map_err(|error| ProxyError::MalformedStream(error.to_string()))?;
+    chunks.push(chunk);
     Ok(())
 }
 
@@ -457,11 +477,35 @@ mod tests {
     #[test]
     fn drain_sse_buffer_flushes_unterminated_final_frame() {
         let payload = serde_json::to_string(&response_chunk()).expect("chunk serializes");
-        let mut buffer = format!("data: {payload}");
+        let mut buffer = format!("data: {payload}").into_bytes();
         let mut chunks = Vec::new();
         drain_sse_buffer(&mut buffer, &mut chunks, true).expect("final unterminated frame parses");
         assert!(buffer.is_empty());
         assert_eq!(chunks, vec![response_chunk()]);
+    }
+
+    #[test]
+    fn drain_sse_buffer_handles_every_byte_boundary_and_crlf_frames() {
+        let payload = serde_json::to_string(&ChatCompletionResponse {
+            id: Some("chunk-🙂".to_string()),
+            choices: Vec::new(),
+            usage: None,
+        })
+        .expect("chunk serializes");
+        let body =
+            format!(": keep-alive\r\ndata: {payload}\r\n\r\nevent: done\r\ndata: [DONE]\r\n\r\n");
+        let mut buffer = Vec::new();
+        let mut chunks = Vec::new();
+
+        for byte in body.as_bytes() {
+            buffer.push(*byte);
+            drain_sse_buffer(&mut buffer, &mut chunks, false).expect("partial SSE parses");
+        }
+        drain_sse_buffer(&mut buffer, &mut chunks, true).expect("SSE finalizes");
+
+        assert!(buffer.is_empty());
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].id.as_deref(), Some("chunk-🙂"));
     }
 
     #[test]

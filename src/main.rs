@@ -14,14 +14,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let config_path = env::var_os("KTXD_CONFIG")
-        .map(PathBuf::from)
-        .or_else(|| {
-            ["config.toml", "config.local.toml"]
-                .into_iter()
-                .map(PathBuf::from)
-                .find(|path| path.is_file())
-        });
+    let config_path = env::var_os("KTXD_CONFIG").map(PathBuf::from).or_else(|| {
+        ["config.toml", "config.local.toml"]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|path| path.is_file())
+    });
     let config = Arc::new(AppConfig::load(config_path.as_deref())?);
     let store = MemoryStore::shared();
     let upstream = Arc::new(ReqwestChatCompletionsClient::default());
