@@ -10,8 +10,9 @@ readme = "README.md"
 repository = "https://github.com/Kleisli-Tech/ktxd"
 homepage = "https://github.com/Kleisli-Tech/ktxd"
 documentation = "https://docs.rs/ktxd"
-keywords = ["codex", "responses-api", "chat-completions", "proxy"]
-categories = ["api-bindings", "network-programming", "web-programming"]
+keywords = ["codex", "proxy", "responses-api", "chat-completions"]
+categories = ["command-line-utilities", "network-programming"]
+exclude = [".gitignore", "tests/"]
 
 [dependencies]
 async-trait = "0.1"
