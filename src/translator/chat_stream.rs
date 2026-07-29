@@ -256,7 +256,10 @@ fn _choice_index(choice: &ChatChoice) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::chat::{ChatDelta, ChatFunctionCallDelta, ChatToolCallDelta};
+    use crate::wire::chat::{
+        ChatDelta, ChatFunctionCall, ChatFunctionCallDelta, ChatResponseMessage, ChatToolCall,
+        ChatToolCallDelta,
+    };
 
     fn response_id() -> ResponseId {
         ResponseId::from_string("resp_test")
@@ -314,6 +317,264 @@ mod tests {
             completion_tokens: Some(completion_tokens),
             total_tokens: Some(total_tokens),
         }
+    }
+
+    fn non_streaming_response(
+        message: Option<ChatResponseMessage>,
+        finish_reason: Option<&str>,
+        usage: Option<ChatUsage>,
+    ) -> ChatCompletionResponse {
+        ChatCompletionResponse {
+            id: Some("chatcmpl_test".to_string()),
+            choices: vec![ChatChoice {
+                index: Some(0),
+                message,
+                delta: None,
+                finish_reason: finish_reason.map(str::to_string),
+            }],
+            usage,
+        }
+    }
+
+    fn message(content: Option<&str>, tool_calls: Vec<ChatToolCall>) -> ChatResponseMessage {
+        ChatResponseMessage {
+            role: Some("assistant".to_string()),
+            content: content.map(str::to_string),
+            tool_calls,
+        }
+    }
+
+    fn tool_call(index: Option<u32>, id: &str, name: &str, arguments: &str) -> ChatToolCall {
+        ChatToolCall {
+            index,
+            id: id.to_string(),
+            tool_type: "function".to_string(),
+            function: ChatFunctionCall {
+                name: name.to_string(),
+                arguments: arguments.to_string(),
+            },
+        }
+    }
+
+    fn output_summary(items: &[TaggedItem]) -> Vec<String> {
+        items
+            .iter()
+            .map(|item| {
+                assert_eq!(item.provenance, ProvenanceTag::model_semi());
+                match &item.item {
+                    CanonicalItem::Message { role, text } => {
+                        format!("message:{role:?}:{text}")
+                    }
+                    CanonicalItem::FunctionCall {
+                        call_id,
+                        name,
+                        arguments,
+                    } => format!("function_call:{call_id}:{name}:{arguments}"),
+                    other => panic!("unexpected non-streaming output: {other:?}"),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn non_streaming_text_omits_empty_content_and_maps_usage() {
+        let response = non_streaming_response(
+            Some(message(Some("answer"), Vec::new())),
+            Some("stop"),
+            Some(usage(11, 7, 18)),
+        );
+        let (items, mapped_usage, terminal) =
+            translate_non_streaming_response(response).expect("response should translate");
+
+        assert_eq!(output_summary(&items), vec!["message:Assistant:answer"]);
+        assert_eq!(mapped_usage.input_tokens, 11);
+        assert_eq!(mapped_usage.output_tokens, 7);
+        assert_eq!(mapped_usage.total_tokens, 18);
+        assert_eq!(terminal, StreamTerminal::Completed);
+
+        let (items, mapped_usage, terminal) = translate_non_streaming_response(
+            non_streaming_response(Some(message(Some(""), Vec::new())), Some("stop"), None),
+        )
+        .expect("empty content should translate");
+        assert!(items.is_empty());
+        assert_eq!(mapped_usage, UsageTotals::default());
+        assert_eq!(terminal, StreamTerminal::Completed);
+    }
+
+    #[test]
+    fn non_streaming_usage_defaults_each_missing_token_field() {
+        let cases = [
+            (
+                ChatUsage {
+                    prompt_tokens: None,
+                    completion_tokens: Some(23),
+                    total_tokens: Some(31),
+                },
+                UsageTotals {
+                    input_tokens: 0,
+                    output_tokens: 23,
+                    total_tokens: 31,
+                },
+            ),
+            (
+                ChatUsage {
+                    prompt_tokens: Some(11),
+                    completion_tokens: None,
+                    total_tokens: Some(37),
+                },
+                UsageTotals {
+                    input_tokens: 11,
+                    output_tokens: 0,
+                    total_tokens: 37,
+                },
+            ),
+            (
+                ChatUsage {
+                    prompt_tokens: Some(13),
+                    completion_tokens: Some(17),
+                    total_tokens: None,
+                },
+                UsageTotals {
+                    input_tokens: 13,
+                    output_tokens: 17,
+                    total_tokens: 0,
+                },
+            ),
+        ];
+
+        for (chat_usage, expected_usage) in cases {
+            let response = non_streaming_response(None, Some("stop"), Some(chat_usage));
+            let (items, mapped_usage, terminal) =
+                translate_non_streaming_response(response).expect("usage should translate");
+
+            assert!(items.is_empty());
+            assert_eq!(mapped_usage, expected_usage);
+            assert_eq!(terminal, StreamTerminal::Completed);
+        }
+    }
+
+    #[test]
+    fn non_streaming_tool_calls_sort_by_index_then_id() {
+        let first = non_streaming_response(
+            Some(message(
+                None,
+                vec![
+                    tool_call(None, "z-call", "zeta", "{}"),
+                    tool_call(Some(2), "two-call", "two", "{\"n\":2}"),
+                    tool_call(Some(1), "one-call", "one", "{\"n\":1}"),
+                    tool_call(None, "a-call", "alpha", "[]"),
+                    tool_call(Some(2), "one-two-call", "two-a", "null"),
+                ],
+            )),
+            Some("tool_calls"),
+            None,
+        );
+        let second = non_streaming_response(
+            Some(message(
+                None,
+                vec![
+                    tool_call(Some(2), "one-two-call", "two-a", "null"),
+                    tool_call(None, "a-call", "alpha", "[]"),
+                    tool_call(Some(1), "one-call", "one", "{\"n\":1}"),
+                    tool_call(None, "z-call", "zeta", "{}"),
+                    tool_call(Some(2), "two-call", "two", "{\"n\":2}"),
+                ],
+            )),
+            Some("tool_calls"),
+            None,
+        );
+
+        let first_summary = output_summary(
+            &translate_non_streaming_response(first)
+                .expect("first response should translate")
+                .0,
+        );
+        let second_summary = output_summary(
+            &translate_non_streaming_response(second)
+                .expect("second response should translate")
+                .0,
+        );
+
+        assert_eq!(first_summary, second_summary);
+        assert_eq!(
+            first_summary,
+            vec![
+                "function_call:one-call:one:{\"n\":1}",
+                "function_call:one-two-call:two-a:null",
+                "function_call:two-call:two:{\"n\":2}",
+                "function_call:a-call:alpha:[]",
+                "function_call:z-call:zeta:{}",
+            ]
+        );
+    }
+
+    #[test]
+    fn non_streaming_finish_reasons_map_to_terminal_states() {
+        let cases = [
+            ("stop", StreamTerminal::Completed),
+            ("tool_calls", StreamTerminal::Completed),
+            (
+                "length",
+                StreamTerminal::Incomplete("max_output_tokens".to_string()),
+            ),
+            (
+                "content_filter",
+                StreamTerminal::Incomplete("content_filter".to_string()),
+            ),
+            (
+                "provider_reason",
+                StreamTerminal::Failed("unsupported_finish_reason_provider_reason".to_string()),
+            ),
+        ];
+
+        for (finish_reason, expected_terminal) in cases {
+            let (items, mapped_usage, terminal) =
+                translate_non_streaming_response(non_streaming_response(
+                    Some(message(Some("partial"), Vec::new())),
+                    Some(finish_reason),
+                    Some(usage(2, 3, 5)),
+                ))
+                .expect("finish reason should translate");
+
+            assert_eq!(output_summary(&items), vec!["message:Assistant:partial"]);
+            assert_eq!(
+                mapped_usage,
+                UsageTotals {
+                    input_tokens: 2,
+                    output_tokens: 3,
+                    total_tokens: 5,
+                }
+            );
+            assert_eq!(terminal, expected_terminal);
+        }
+    }
+
+    #[test]
+    fn non_streaming_missing_metadata_and_choices_return_stable_results() {
+        let (items, mapped_usage, terminal) =
+            translate_non_streaming_response(non_streaming_response(None, Some("length"), None))
+                .expect("finish metadata should still be translated without a message");
+        assert!(items.is_empty());
+        assert_eq!(mapped_usage, UsageTotals::default());
+        assert_eq!(
+            terminal,
+            StreamTerminal::Incomplete("max_output_tokens".to_string())
+        );
+
+        let (items, mapped_usage, terminal) =
+            translate_non_streaming_response(non_streaming_response(None, None, None))
+                .expect("missing finish reason defaults to stop");
+        assert!(items.is_empty());
+        assert_eq!(mapped_usage, UsageTotals::default());
+        assert_eq!(terminal, StreamTerminal::Completed);
+
+        let error = translate_non_streaming_response(ChatCompletionResponse {
+            id: Some("chatcmpl_missing_choice".to_string()),
+            choices: Vec::new(),
+            usage: Some(usage(1, 2, 3)),
+        })
+        .expect_err("missing choices should return an upstream error");
+        assert!(matches!(error, ProxyError::Upstream(message) if message == "missing choice"));
     }
 
     #[test]
