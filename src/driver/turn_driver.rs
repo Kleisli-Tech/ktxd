@@ -596,3 +596,36 @@ async fn emit_sequenced(
     *sequence_number += 1;
     sink.emit(sequenced).await;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::responses::{VecEventSink, output_text_delta_event};
+
+    #[tokio::test]
+    async fn emit_sequenced_assigns_contiguous_sequence_numbers() {
+        let response_id = ResponseId::from_string("resp_test");
+        let mut sequence_number = 0;
+        let mut sink = VecEventSink::default();
+
+        emit_sequenced(
+            &mut sink,
+            &mut sequence_number,
+            output_text_delta_event(&response_id, "item_test", 0, "first"),
+        )
+        .await;
+        emit_sequenced(
+            &mut sink,
+            &mut sequence_number,
+            output_text_delta_event(&response_id, "item_test", 0, "second"),
+        )
+        .await;
+
+        assert_eq!(sequence_number, 2);
+        assert_eq!(sink.events.len(), 2);
+        assert_eq!(sink.events[0].data["sequence_number"], 0);
+        assert_eq!(sink.events[1].data["sequence_number"], 1);
+        assert_eq!(sink.events[0].data["delta"], "first");
+        assert_eq!(sink.events[1].data["delta"], "second");
+    }
+}
