@@ -9,6 +9,8 @@ use std::{
 use ktxd::{
     config::{AuthHeaderKind, ModelConfig},
     error::ProxyError,
+    ids::ResponseId,
+    translator::{StreamTerminal, translate_stream_chunks},
     upstream::{ChatCompletions, ReqwestChatCompletionsClient},
     wire::chat::{ChatCompletionRequest, ChatFunctionTool, ChatMessage, ChatTool, StreamOptions},
 };
@@ -311,6 +313,56 @@ async fn stream_parses_chunked_sse_with_crlf_done_comments_and_unterminated_fram
     assert_eq!(chunks.len(), 2);
     assert_eq!(chunks[0].id.as_deref(), Some("chunk-1"));
     assert_eq!(chunks[1].id.as_deref(), Some("chunk-2"));
+}
+
+#[tokio::test]
+async fn usage_only_sse_followed_by_done_preserves_usage_and_requires_finish_reason() {
+    let _env_lock = lock_environment().await;
+    let usage_chunk = json!({
+        "id": "usage-only",
+        "choices": [],
+        "usage": {
+            "prompt_tokens": 8,
+            "completion_tokens": 2,
+            "total_tokens": 10
+        }
+    });
+    let body = format!("data: {usage_chunk}\n\ndata: [DONE]\n\n");
+    let mut server = ScriptedHttpServer::spawn(vec![
+        ScriptedResponse::new(200, body.into_bytes())
+            .with_header("content-type", "text/event-stream"),
+    ])
+    .await
+    .unwrap();
+    let secret_var = unique_env("USAGE_DONE");
+    let _secret = ScopedEnv::set(&secret_var, "usage-done-secret");
+
+    let chunks = client()
+        .stream(
+            &model(&server, &secret_var, AuthHeaderKind::ApiKey, false),
+            request(true, None),
+        )
+        .await
+        .unwrap();
+    server.finish().await.unwrap();
+
+    assert_eq!(chunks.len(), 1);
+    assert!(chunks[0].choices.is_empty());
+    let translated = translate_stream_chunks(
+        &ResponseId::from_string("resp_usage_done"),
+        "model-test",
+        chunks,
+    )
+    .expect("usage-only stream should translate");
+    assert_eq!(
+        translated.terminal,
+        StreamTerminal::Failed("done_without_finish_reason".to_string())
+    );
+    assert!(translated.output_items.is_empty());
+    assert!(translated.events.is_empty());
+    assert_eq!(translated.usage.input_tokens, 8);
+    assert_eq!(translated.usage.output_tokens, 2);
+    assert_eq!(translated.usage.total_tokens, 10);
 }
 
 #[tokio::test]
