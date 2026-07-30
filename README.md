@@ -2,6 +2,13 @@
 
 > A local context bridge for Codex CLI and Chat Completions backends.
 
+[![CI](https://github.com/Kleisli-Tech/ktxd/actions/workflows/ci.yml/badge.svg)](https://github.com/Kleisli-Tech/ktxd/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Rust 1.86+](https://img.shields.io/badge/rust-1.86%2B-orange.svg)](https://www.rust-lang.org/)
+[![Docs.rs](https://docs.rs/ktxd/badge.svg)](https://docs.rs/ktxd)
+[![Crates.io](https://img.shields.io/crates/v/ktxd.svg)](https://crates.io/crates/ktxd)
+[![Downloads](https://img.shields.io/crates/d/ktxd.svg)](https://crates.io/crates/ktxd)
+
 **Context-D** is the project name. **`ktxd`** is its working handle — used across the crate, executable, config files, logs, and Codex provider key. Same project, just the name it travels under.
 
 Context-D lets Codex CLI use an upstream Chat Completions model through the OpenAI Responses API shape that Codex expects. It translates `/v1/responses` requests into upstream Chat Completions requests, normalizes responses back into Responses objects or Server-Sent Events (SSE), and keeps completed responses in memory so `previous_response_id` can work across turns.
