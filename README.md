@@ -546,19 +546,24 @@ base_url = "http://127.0.0.1:3001/v1"
 
 ## Development
 
-Run the current test target (there are currently no repository tests):
+Run the repository test suite:
 
 ```bash
-cargo test
+cargo +stable test --all-features --locked
 ```
 
-Run pre-PR checks before publishing changes:
+Run the pre-PR checks before opening a pull request:
 
 ```bash
-cargo fmt --check
-cargo clippy --all-targets --all-features
-cargo test
+cargo +1.86.0 fmt --all -- --check
+cargo +stable clippy --all-targets --all-features --locked -- -D warnings
+cargo +stable test --all-features --locked
+cargo +stable package --locked
 ```
+
+The GitHub Actions workflow runs these checks on every pull request targeting
+`main`, and also verifies that the crate still builds with its declared Rust
+MSRV of `1.86`.
 
 Run with debug logs:
 

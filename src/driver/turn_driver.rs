@@ -450,6 +450,10 @@ impl TurnDriver {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This helper maps the complete committed-turn boundary"
+    )]
     async fn commit_completed(
         &self,
         model: &str,
@@ -516,6 +520,10 @@ impl TurnDriver {
         Ok(record)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "This helper maps the complete terminal-record boundary"
+    )]
     async fn put_terminal_record(
         &self,
         response_id: ResponseId,

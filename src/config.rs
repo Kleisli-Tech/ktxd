@@ -50,9 +50,10 @@ pub enum AuthHeaderKind {
     AuthorizationBearer,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstructionRole {
+    #[default]
     System,
     Developer,
 }
@@ -74,12 +75,6 @@ impl Default for ServerConfig {
         Self {
             bind: default_bind(),
         }
-    }
-}
-
-impl Default for InstructionRole {
-    fn default() -> Self {
-        Self::System
     }
 }
 
