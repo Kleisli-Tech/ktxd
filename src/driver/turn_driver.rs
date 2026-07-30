@@ -299,8 +299,8 @@ impl TurnDriver {
                                 normalized.request_items,
                                 Vec::new(),
                                 UsageTotals::default(),
+                                Some("stream_failed".to_string()),
                                 Some(reason),
-                                None,
                                 None,
                             )
                             .await
@@ -418,7 +418,7 @@ impl TurnDriver {
                                 parent_response_id,
                                 TurnOutcome::Failed,
                                 normalized.request_items,
-                                output_items,
+                                Vec::new(),
                                 usage,
                                 Some(reason),
                                 None,
@@ -471,7 +471,13 @@ impl TurnDriver {
         let fingerprint = sha256_hex_of_canonical(&json!({
             "instructions": instructions,
             "tools": tools,
-            "items": transcript,
+            "items": transcript
+                .iter()
+                .map(|item| json!({
+                    "item": &item.item,
+                    "provenance": &item.provenance,
+                }))
+                .collect::<Vec<_>>(),
         }))?;
         let response_object = completed_response_object(&response_id, model, &output_items, &usage);
         let final_response_json = serde_json::to_value(response_object)
