@@ -694,7 +694,9 @@ fn turn_record(
 
 fn message_item(role: MessageRole, text: &str) -> TaggedItem {
     let provenance = match role {
-        MessageRole::User => ProvenanceTag::user_trusted(),
+        MessageRole::System | MessageRole::Developer | MessageRole::User => {
+            ProvenanceTag::user_trusted()
+        }
         MessageRole::Assistant => ProvenanceTag::model_semi(),
     };
     TaggedItem::new(

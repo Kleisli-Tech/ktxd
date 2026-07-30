@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::ids::{ArtifactHash, ResponseId, SessionVersion, TurnId};
 use crate::responses::{
     ResponseEvent, ResponseEventSink, base_response, completed_event, completed_response_object,
-    created_event, failed_event, with_sequence_number,
+    created_event, failed_event, failed_event_with_usage, with_sequence_number,
 };
 use crate::session::MemoryStore;
 use crate::stream::{StreamTerminal, translate_non_streaming_response, translate_stream_chunks};
@@ -282,11 +282,12 @@ impl TurnDriver {
                             emit_sequenced(
                                 sink,
                                 &mut sequence_number,
-                                failed_event(
+                                failed_event_with_usage(
                                     &response_id,
                                     &normalized.model,
                                     "stream_failed",
                                     &reason,
+                                    Some(&translation.usage),
                                 ),
                             )
                             .await;
@@ -298,7 +299,7 @@ impl TurnDriver {
                                 TurnOutcome::Failed,
                                 normalized.request_items,
                                 Vec::new(),
-                                UsageTotals::default(),
+                                translation.usage,
                                 Some("stream_failed".to_string()),
                                 Some(reason),
                                 None,

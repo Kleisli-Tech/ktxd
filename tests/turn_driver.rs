@@ -602,7 +602,7 @@ async fn failed_terminal_stream_discards_partial_output_and_never_commits_sessio
     upstream
         .queue_stream(vec![
             stream_chunk(Some("partial"), None, None),
-            stream_chunk(None, Some("other"), None),
+            stream_chunk(None, Some("other"), Some((8, 2, 10))),
         ])
         .await;
     let mut sink = VecEventSink::default();
@@ -626,6 +626,14 @@ async fn failed_terminal_stream_discards_partial_output_and_never_commits_sessio
         record.error_message.as_deref(),
         Some("unsupported_finish_reason_other")
     );
+    assert_eq!(
+        record.usage,
+        UsageTotals {
+            input_tokens: 8,
+            output_tokens: 2,
+            total_tokens: 10,
+        }
+    );
     assert!(record.output_items.is_empty());
     assert_eq!(
         event_names(&sink.events),
@@ -638,9 +646,18 @@ async fn failed_terminal_stream_discards_partial_output_and_never_commits_sessio
         ]
     );
     assert_event_response_ids(&sink.events, &record.response_id);
-    assert_failed_event_matches_record(sink.events.last().expect("failed event"), &record);
+    let failed_event = sink.events.last().expect("failed event");
+    assert_failed_event_matches_record(failed_event, &record);
+    assert_eq!(
+        failed_event.data["response"]["usage"],
+        json!({"input_tokens": 8, "output_tokens": 2, "total_tokens": 10})
+    );
     support::assert_contiguous_sequence_numbers(&sink.events);
-    assert_terminal_storage(&store, &record).await;
+    let stored_response = assert_terminal_storage(&store, &record).await;
+    assert_eq!(
+        stored_response["usage"],
+        json!({"input_tokens": 8, "output_tokens": 2, "total_tokens": 10})
+    );
     assert!(
         SessionStore::get(store.as_ref(), &record.response_id)
             .await
@@ -919,7 +936,9 @@ fn normalized_with_options(
 
 fn message_item(role: MessageRole, text: &str) -> TaggedItem {
     let provenance = match role {
-        MessageRole::User => ProvenanceTag::user_trusted(),
+        MessageRole::System | MessageRole::Developer | MessageRole::User => {
+            ProvenanceTag::user_trusted()
+        }
         MessageRole::Assistant => ProvenanceTag::model_semi(),
     };
     TaggedItem::new(

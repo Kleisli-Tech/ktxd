@@ -31,6 +31,8 @@ pub fn compile_chat_request(
         match &tagged_item.item {
             CanonicalItem::Message { role, text } => messages.push(ChatMessage {
                 role: match role {
+                    MessageRole::System => "system".to_string(),
+                    MessageRole::Developer => "developer".to_string(),
                     MessageRole::User => "user".to_string(),
                     MessageRole::Assistant => "assistant".to_string(),
                 },
@@ -267,6 +269,36 @@ mod tests {
                 "stream": true,
                 "stream_options": {"include_usage": true}
             })
+        );
+    }
+
+    #[test]
+    fn preserves_canonical_system_and_developer_message_roles() {
+        let config = model_config();
+        let input = normalized("", Vec::new(), "auto", false);
+        let transcript = vec![
+            item(CanonicalItem::Message {
+                role: MessageRole::System,
+                text: "System policy".to_string(),
+            }),
+            item(CanonicalItem::Message {
+                role: MessageRole::Developer,
+                text: "Developer policy".to_string(),
+            }),
+            item(CanonicalItem::Message {
+                role: MessageRole::User,
+                text: "Question".to_string(),
+            }),
+        ];
+
+        let request = serialized_request(&config, &transcript, &input, false);
+        assert_eq!(
+            request["messages"],
+            json!([
+                {"role": "system", "content": "System policy"},
+                {"role": "developer", "content": "Developer policy"},
+                {"role": "user", "content": "Question"}
+            ])
         );
     }
 

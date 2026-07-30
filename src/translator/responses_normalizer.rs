@@ -114,7 +114,17 @@ fn normalize_message_item(item: &Value, normalized: &mut Vec<TaggedItem>) -> Res
             let text = collect_content_text(content, "input_text")?;
             normalized.push(TaggedItem::new(
                 CanonicalItem::Message {
-                    role: MessageRole::User,
+                    role: MessageRole::Developer,
+                    text,
+                },
+                ProvenanceTag::user_trusted(),
+            ));
+        }
+        "system" => {
+            let text = collect_content_text(content, "input_text")?;
+            normalized.push(TaggedItem::new(
+                CanonicalItem::Message {
+                    role: MessageRole::System,
                     text,
                 },
                 ProvenanceTag::user_trusted(),
@@ -342,7 +352,7 @@ mod tests {
     fn string_input_becomes_trusted_user_message() {
         let normalized = normalize(ResponsesInput::String("hello\0world".to_string()));
 
-        assert_eq!(normalized.stream, false);
+        assert!(!normalized.stream);
         assert_eq!(normalized.request_items.len(), 1);
         let item = &normalized.request_items[0];
         assert_provenance(item, ProvenanceSource::User, TrustLevel::Trusted);
@@ -407,7 +417,7 @@ mod tests {
         let expected = [
             (MessageRole::User, "default\nrole", ProvenanceSource::User),
             (MessageRole::User, "user", ProvenanceSource::User),
-            (MessageRole::User, "developer", ProvenanceSource::User),
+            (MessageRole::Developer, "developer", ProvenanceSource::User),
             (
                 MessageRole::Assistant,
                 "first\nsecond",
@@ -459,10 +469,10 @@ mod tests {
         assert_unsupported_input(
             ResponsesInput::Items(vec![json!({
                 "type": "message",
-                "role": "system",
+                "role": "tool",
                 "content": []
             })]),
-            "message_role_system",
+            "message_role_tool",
         );
         assert_unsupported_input(
             ResponsesInput::Items(vec![json!({

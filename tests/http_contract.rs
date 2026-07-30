@@ -179,6 +179,14 @@ fn without_created_at(mut value: Value) -> Value {
 }
 
 fn text_response(content: &str, usage: (u64, u64, u64)) -> ChatCompletionResponse {
+    text_response_with_finish_reason(content, "stop", usage)
+}
+
+fn text_response_with_finish_reason(
+    content: &str,
+    finish_reason: &str,
+    usage: (u64, u64, u64),
+) -> ChatCompletionResponse {
     ChatCompletionResponse {
         id: Some("chatcmpl_test".to_string()),
         choices: vec![ChatChoice {
@@ -189,7 +197,7 @@ fn text_response(content: &str, usage: (u64, u64, u64)) -> ChatCompletionRespons
                 tool_calls: Vec::new(),
             }),
             delta: None,
-            finish_reason: Some("stop".to_string()),
+            finish_reason: Some(finish_reason.to_string()),
         }],
         usage: Some(ChatUsage {
             prompt_tokens: Some(usage.0),
@@ -663,6 +671,99 @@ async fn non_streaming_tool_calls_and_terminal_payloads_are_retrievable() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, expected);
     }
+}
+
+#[tokio::test]
+async fn non_streaming_incomplete_and_failed_responses_are_retrievable_from_post_results() {
+    let app = test_app();
+    app.upstream
+        .queue_complete(text_response_with_finish_reason(
+            "partial answer",
+            "length",
+            (3, 4, 7),
+        ))
+        .await;
+    app.upstream
+        .queue_complete(text_response_with_finish_reason(
+            "failed answer",
+            "other",
+            (5, 6, 11),
+        ))
+        .await;
+
+    let response = send(
+        app.router.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "DeepSeek-V4-Pro",
+            "input": "incomplete request"
+        })),
+    )
+    .await;
+    let (status, content_type, incomplete) = json_body(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("application/json"));
+    assert_eq!(incomplete["status"], "incomplete");
+    assert_eq!(
+        incomplete["usage"],
+        json!({"input_tokens": 3, "output_tokens": 4, "total_tokens": 7})
+    );
+    assert_eq!(
+        incomplete["incomplete_details"],
+        json!({"reason": "max_output_tokens"})
+    );
+    let incomplete_id = incomplete["id"].as_str().expect("incomplete response ID");
+    support::assert_generated_id(incomplete_id, "resp_");
+    let response = send(
+        app.router.clone(),
+        Method::GET,
+        &format!("/v1/responses/{incomplete_id}"),
+        None,
+    )
+    .await;
+    let (status, _, retrieved_incomplete) = json_body(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(retrieved_incomplete, incomplete);
+
+    let response = send(
+        app.router.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "DeepSeek-V4-Pro",
+            "input": "failed request"
+        })),
+    )
+    .await;
+    let (status, content_type, failed) = json_body(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("application/json"));
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(failed["output"], json!([]));
+    assert_eq!(
+        failed["usage"],
+        json!({"input_tokens": 5, "output_tokens": 6, "total_tokens": 11})
+    );
+    assert_eq!(
+        failed["error"],
+        json!({
+            "code": "unsupported_finish_reason_other",
+            "message": "unsupported_finish_reason_other"
+        })
+    );
+    let failed_id = failed["id"].as_str().expect("failed response ID");
+    support::assert_generated_id(failed_id, "resp_");
+    let response = send(
+        app.router,
+        Method::GET,
+        &format!("/v1/responses/{failed_id}"),
+        None,
+    )
+    .await;
+    let (status, _, retrieved_failed) = json_body(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(retrieved_failed, failed);
 }
 
 #[tokio::test]

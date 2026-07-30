@@ -182,7 +182,17 @@ pub fn failed_event(
     code: &str,
     message: &str,
 ) -> ResponseEvent {
-    let mut response = base_response(response_id, model, "failed", Vec::new(), None, None);
+    failed_event_with_usage(response_id, model, code, message, None)
+}
+
+pub fn failed_event_with_usage(
+    response_id: &ResponseId,
+    model: &str,
+    code: &str,
+    message: &str,
+    usage: Option<&UsageTotals>,
+) -> ResponseEvent {
+    let mut response = base_response(response_id, model, "failed", Vec::new(), usage, None);
     response.error = Some(json!({"code": code, "message": message}));
     event(
         "response.failed",
@@ -241,7 +251,12 @@ pub fn tagged_item_to_response_json(item: &TaggedItem) -> Value {
         CanonicalItem::Message { role, text } => json!({
             "id": item.id.to_string(),
             "type": "message",
-            "role": match role { crate::domain::MessageRole::User => "user", crate::domain::MessageRole::Assistant => "assistant" },
+            "role": match role {
+                crate::domain::MessageRole::System => "system",
+                crate::domain::MessageRole::Developer => "developer",
+                crate::domain::MessageRole::User => "user",
+                crate::domain::MessageRole::Assistant => "assistant",
+            },
             "content": [{"type":"output_text", "text": text}],
         }),
         CanonicalItem::FunctionCall {
@@ -406,7 +421,12 @@ mod tests {
             })
         );
 
-        let completed = completed_event(&response_id, "test-model", &[item.clone()], &usage);
+        let completed = completed_event(
+            &response_id,
+            "test-model",
+            std::slice::from_ref(&item),
+            &usage,
+        );
         assert_event_contract(&completed, "response.completed", &response_id_string);
         assert_response_payload(
             &completed.data["response"],
@@ -482,7 +502,12 @@ mod tests {
         assert!(created.data["response"].get("usage").is_none());
         assert!(created.data["response"].get("incomplete_details").is_none());
 
-        let completed = completed_event(&response_id, "test-model", &[item.clone()], &usage);
+        let completed = completed_event(
+            &response_id,
+            "test-model",
+            std::slice::from_ref(&item),
+            &usage,
+        );
         assert_eq!(completed.data["response"]["usage"]["input_tokens"], 11);
         assert_eq!(completed.data["response"]["usage"]["output_tokens"], 7);
         assert_eq!(completed.data["response"]["usage"]["total_tokens"], 18);
@@ -510,6 +535,18 @@ mod tests {
         assert!(failed.data["response"].get("usage").is_none());
         assert!(failed.data["response"].get("incomplete_details").is_none());
         assert_eq!(failed.data["response"]["error"]["message"], "failed");
+
+        let failed_with_usage = failed_event_with_usage(
+            &response_id,
+            "test-model",
+            "stream_failed",
+            "backend stopped",
+            Some(&usage),
+        );
+        assert_eq!(
+            failed_with_usage.data["response"]["usage"],
+            json!({"input_tokens": 11, "output_tokens": 7, "total_tokens": 18})
+        );
     }
 
     #[test]
